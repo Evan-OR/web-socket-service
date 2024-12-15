@@ -1,74 +1,103 @@
 import express from 'express';
 import { createServer } from 'http';
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 import path from 'path';
-import cors from 'cors';
-import { getRandomColor, randomBiddingUpdated } from './utils/utils';
+import { getRandomColor, randomBiddingUpdated } from './lib/utils';
+import 'dotenv/config';
+import { getUserData } from './lib/requests';
+import { BidController, BidStatus } from './types';
 
 const app = express();
 const http = createServer(app);
 const io = new Server(http, {
-    cors: {
-        origin: '*',
-    },
+  cors: {
+    origin: '*',
+  },
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.send('working!');
 });
 
 const users: Record<string, { username?: string; colour?: string }> = {};
 let userIncrement = 0;
 const setUserName = ({ id, customName = '' }: { id: string; customName?: string }) => {
-    users[id] = { username: customName ? customName : `Guest ${userIncrement}`, colour: getRandomColor() };
-    userIncrement++;
+  users[id] = { username: customName ? customName : `Guest ${userIncrement}`, colour: getRandomColor() };
+  userIncrement++;
 };
 
-io.on('connection', (socket) => {
-    setUserName({ id: socket.id });
-    console.log(`${users[socket.id].username} connected`);
-    console.log(socket.handshake.auth);
+let BID: BidStatus = {
+  amount: 0,
+  timestamp: Date.now(),
+};
 
-    socket.on('join', (room) => {
-        socket.join(room);
-        console.log('user joined room:', room);
+io.on('connection', async (socket: Socket) => {
+  const userdata = await getUserData(socket);
+  const canSendMessages = userdata === undefined;
+
+  setUserName({ id: socket.id, ...(userdata && { customName: userdata.username }) });
+  console.log(`${users[socket.id].username} connected`);
+  console.log(socket.handshake.auth);
+
+  socket.on('join', (room) => {
+    socket.join(room);
+    console.log('user joined room:', room);
+  });
+
+  socket.on('message', (msg) => {
+    socket.broadcast.emit('message', {
+      timestamp: Date.now(),
+      username: users[socket.id].username,
+      colour: users[socket.id].colour,
+      msg,
+      type: 'user',
     });
 
-    socket.on('disconnect', () => {
-        console.log('user disconnected');
-        const formattedMessage = `${users[socket.id].username} left`;
-        socket.broadcast.emit('message', { timestamp: Date.now(), msg: formattedMessage, type: 'host' });
+    const formattedMessage = `${users[socket.id].username}: ${msg}`;
+    console.log(formattedMessage);
+  });
+
+  socket.on('startTimer', ({ msg, duration }) => {
+    console.log(msg, duration);
+    socket.broadcast.emit('startTimer', {
+      startTime: Date.now(),
+      duration,
+      msg,
     });
 
-    socket.on('message', (msg) => {
-        socket.broadcast.emit('message', {
-            timestamp: Date.now(),
-            username: users[socket.id].username,
-            colour: users[socket.id].colour,
-            msg,
-            type: 'user',
-        });
+    // const endTime = Date.now() + duration * 1000;
+    // randomBiddingUpdated(socket, endTime);
+    BID = {
+      amount: 0,
+      timestamp: Date.now(),
+    };
 
-        const formattedMessage = `${users[socket.id].username}: ${msg}`;
-        console.log(formattedMessage);
-    });
+    console.log(`Starting ${duration}s timer with message: "${msg}"`);
+  });
 
-    socket.on('startTimer', ({ msg, duration }) => {
-        socket.broadcast.emit('startTimer', {
-            startTime: Date.now(),
-            duration,
-            msg,
-        });
+  socket.on('placeBid', ({ amount }) => {
+    if (!userdata) {
+      console.log('Unknown user tried to place bid!');
+      return;
+    }
+    console.log(`GOT NEW BID FROM ${userdata.username}:`, amount);
 
-        const endTime = Date.now() + duration * 1000;
-        randomBiddingUpdated(socket, endTime);
+    const currentBidder = {
+      username: userdata.username,
+      profilePic: '',
+    };
 
-        console.log(`Starting ${duration}s timer with message: "${msg}"`);
-    });
+    if (amount > BID.amount) {
+      console.log('Bid is greater than previous bid');
+      BID.amount = amount;
+      socket.emit('biddingUpdate', { ...currentBidder, bid: BID.amount });
+      socket.broadcast.emit('biddingUpdate', { ...currentBidder, bid: BID.amount });
+    }
+  });
 });
 
 http.listen(3001, () => {
-    console.log('listening on http://localhost:3001/');
+  console.log('listening on http://localhost:3001/');
 });
