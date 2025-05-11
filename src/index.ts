@@ -6,6 +6,7 @@ import { getRandomColor, randomBiddingUpdated } from './lib/utils';
 import 'dotenv/config';
 import { getUserData } from './lib/requests';
 import { BidController, BidStatus } from './types';
+import { getCompletedBidsDB } from './lib/db';
 
 const app = express();
 const http = createServer(app);
@@ -31,6 +32,7 @@ const setUserName = ({ id, customName = '' }: { id: string; customName?: string 
 let BID: BidStatus = {
   amount: 0,
   timestamp: Date.now(),
+  userData: null,
 };
 
 io.on('connection', async (socket: Socket) => {
@@ -60,6 +62,8 @@ io.on('connection', async (socket: Socket) => {
   });
 
   socket.on('startTimer', ({ msg, duration }) => {
+    const durationInMilliseconds = duration * 1000;
+
     console.log(msg, duration);
     socket.broadcast.emit('startTimer', {
       startTime: Date.now(),
@@ -72,9 +76,29 @@ io.on('connection', async (socket: Socket) => {
     BID = {
       amount: 0,
       timestamp: Date.now(),
+      userData: null,
     };
 
     console.log(`Starting ${duration}s timer with message: "${msg}"`);
+
+    setTimeout(() => {
+      console.log('timer FINSIHED!!!!!!!');
+      socket.broadcast.emit('timerComplete', {
+        msg: 'OMG ITS OVER',
+        finalBidData: BID,
+      });
+
+      getCompletedBidsDB(process.env.MONGODB).then((collection) =>
+        collection.insertOne({
+          seller: 'Evan',
+          buyerId: userdata._id,
+          buyerName: userdata.displayName,
+          title: msg,
+          date: BID.timestamp,
+          amount: BID.amount,
+        })
+      );
+    }, durationInMilliseconds + 250);
   });
 
   socket.on('placeBid', ({ amount }) => {
@@ -86,12 +110,13 @@ io.on('connection', async (socket: Socket) => {
 
     const currentBidder = {
       username: userdata.username,
-      profilePic: '',
+      profilePic: `https://livebiddingprojectimages.blob.core.windows.net/images/${userdata.mail}` || '',
     };
 
     if (amount > BID.amount) {
       console.log('Bid is greater than previous bid');
       BID.amount = amount;
+      BID.userData = { ...currentBidder };
       socket.emit('biddingUpdate', { ...currentBidder, bid: BID.amount });
       socket.broadcast.emit('biddingUpdate', { ...currentBidder, bid: BID.amount });
     }
