@@ -16,6 +16,8 @@ const io = new Server(http, {
   },
 });
 
+const PORT = process.env.PORT || 3001;
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
@@ -123,6 +125,6 @@ io.on('connection', async (socket: Socket) => {
   });
 });
 
-http.listen(3001, () => {
-  console.log('listening on http://localhost:3001/');
+http.listen(PORT, () => {
+  console.log(`listening on http://localhost:${PORT}/`);
 });
