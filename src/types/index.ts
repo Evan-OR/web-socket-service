@@ -5,6 +5,10 @@ export type BidController = Record<string, BidStatus>;
 export type BidStatus = {
   amount: number;
   timestamp: number;
+  userData: {
+    username: string;
+    profilePic: string;
+  };
 };
 
 export interface UserSocket extends Socket {
@@ -16,6 +20,7 @@ export type User = {
   username: string;
   registration_date: number;
   isSeller: boolean;
+  profilePic?: string;
 } & MSUserData;
 
 export type MSUserData = {
